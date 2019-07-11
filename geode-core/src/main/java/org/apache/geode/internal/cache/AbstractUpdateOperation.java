@@ -144,16 +144,21 @@ public abstract class AbstractUpdateOperation extends DistributedCacheOperation 
           br.getPartitionedRegion().getPrStats().startApplyReplication();
         }
         try {
-          // if the oldValue is the DESTROYED token and overwrite is disallowed,
-          // then basicPut will set the blockedDestroyed flag in the event
-          boolean overwriteDestroyed = ev.getOperation().isCreate();
-          if (rgn.basicUpdate(ev, true /* ifNew */, false/* ifOld */, lastMod,
-              overwriteDestroyed)) {
-            rgn.getCachePerfStats().endPut(startPut, ev.isOriginRemote());
-            // we did a create, or replayed a create event
-            doUpdate = false;
-            updated = true;
-          } else { // already exists. If it was blocked by the DESTROYED token, then
+          if (rgn.getRegionEntry(ev.getKey()) == null) {
+            // if the oldValue is the DESTROYED token and overwrite is disallowed,
+            // then basicPut will set the blockedDestroyed flag in the event
+            boolean overwriteDestroyed = ev.getOperation().isCreate();
+            if (rgn.basicUpdate(ev, true /* ifNew */, false/* ifOld */, lastMod,
+                overwriteDestroyed)) {
+              rgn.getCachePerfStats().endPut(startPut, ev.isOriginRemote());
+              // we did a create, or replayed a create event
+              doUpdate = false;
+              updated = true;
+            } else { // already exists. If it was blocked by the DESTROYED token, then
+              // do no update.
+              doUpdate = checkIfToUpdateAfterCreateFailed(rgn, ev);
+            }
+          } else {// already exists. If it was blocked by the DESTROYED token, then
             // do no update.
             doUpdate = checkIfToUpdateAfterCreateFailed(rgn, ev);
           }

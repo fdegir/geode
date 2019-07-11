@@ -32,6 +32,7 @@ public class UpdateOperationJUnitTest {
   EntryEventImpl event;
   UpdateOperation.UpdateMessage message;
   DistributedRegion region;
+  RegionEntry re;
 
   @Before
   public void setup() {
@@ -41,7 +42,6 @@ public class UpdateOperationJUnitTest {
     CachePerfStats stats = mock(CachePerfStats.class);
     when(event.isOriginRemote()).thenReturn(false);
     when(stats.endPut(anyLong(), eq(false))).thenReturn(0L);
-
     message = new UpdateOperation.UpdateMessage();
     message.event = event;
     when(region.isAllEvents()).thenReturn(true);
@@ -52,6 +52,8 @@ public class UpdateOperationJUnitTest {
     when(region.getCachePerfStats()).thenReturn(stats);
     when(attr.getDataPolicy()).thenReturn(DataPolicy.REPLICATE);
     when(event.getOperation()).thenReturn(Operation.CREATE);
+    when(event.getKey()).thenReturn("key");
+    re = mock(RegionEntry.class);
   }
 
   /**
@@ -60,6 +62,7 @@ public class UpdateOperationJUnitTest {
    */
   @Test
   public void createSucceedShouldNotRetryAnymore() {
+    when(region.getRegionEntry(eq("key"))).thenReturn(null);
     when(region.basicUpdate(eq(event), eq(true), eq(false), anyLong(), eq(true)))
         .thenReturn(true);
     message.basicOperateOnRegion(event, region);
@@ -75,6 +78,7 @@ public class UpdateOperationJUnitTest {
    */
   @Test
   public void createFailWithConcurrencyConflictShouldNotRetry() {
+    when(region.getRegionEntry(eq("key"))).thenReturn(null);
     when(region.basicUpdate(eq(event), eq(true), eq(false), anyLong(), eq(true)))
         .thenReturn(false);
     when(event.isConcurrencyConflict()).thenReturn(true);
@@ -90,6 +94,7 @@ public class UpdateOperationJUnitTest {
    */
   @Test
   public void updateSucceedShouldNotRetryAnymore() {
+    when(region.getRegionEntry(eq("key"))).thenReturn(null);
     when(region.basicUpdate(eq(event), eq(true), eq(false), anyLong(), eq(true)))
         .thenReturn(false);
     when(region.basicUpdate(eq(event), eq(false), eq(true), anyLong(), eq(true)))
@@ -107,12 +112,43 @@ public class UpdateOperationJUnitTest {
    */
   @Test
   public void doPutOrCreate3rdRetryShouldBeUpdate() {
+    when(region.getRegionEntry(eq("key"))).thenReturn(null);
     when(region.basicUpdate(eq(event), eq(true), eq(false), anyLong(), eq(true)))
         .thenReturn(false);
     when(region.basicUpdate(eq(event), eq(false), eq(true), anyLong(), eq(true)))
         .thenReturn(false);
     message.basicOperateOnRegion(event, region);
     verify(region, times(1)).basicUpdate(eq(event), eq(true), eq(false), anyLong(), eq(true));
+    verify(region, times(1)).basicUpdate(eq(event), eq(false), eq(true), anyLong(), eq(true));
+    verify(region, times(1)).basicUpdate(eq(event), eq(false), eq(false), anyLong(), eq(true));
+  }
+
+  /**
+   * AUO's doPutOrCreate will read entry first. If entry exist, it will try update.
+   * If update succeed, no more retry
+   */
+  @Test
+  public void updateSucceedIn1stTry() {
+    when(region.getRegionEntry(eq("key"))).thenReturn(re);
+    when(region.basicUpdate(eq(event), eq(false), eq(true), anyLong(), eq(true)))
+        .thenReturn(true);
+    message.basicOperateOnRegion(event, region);
+    verify(region, times(0)).basicUpdate(eq(event), eq(true), eq(false), anyLong(), eq(true));
+    verify(region, times(1)).basicUpdate(eq(event), eq(false), eq(true), anyLong(), eq(true));
+    verify(region, times(0)).basicUpdate(eq(event), eq(false), eq(false), anyLong(), eq(true));
+  }
+
+  /**
+   * AUO's doPutOrCreate will read entry first. If entry exist, it will try update.
+   * If retry again, it should be an update with ifNew==false and ifOld==false
+   */
+  @Test
+  public void doPutOrCreate2ndRetryShouldBeUpdate() {
+    when(region.getRegionEntry(eq("key"))).thenReturn(re);
+    when(region.basicUpdate(eq(event), eq(false), eq(true), anyLong(), eq(true)))
+        .thenReturn(false);
+    message.basicOperateOnRegion(event, region);
+    verify(region, times(0)).basicUpdate(eq(event), eq(true), eq(false), anyLong(), eq(true));
     verify(region, times(1)).basicUpdate(eq(event), eq(false), eq(true), anyLong(), eq(true));
     verify(region, times(1)).basicUpdate(eq(event), eq(false), eq(false), anyLong(), eq(true));
   }
